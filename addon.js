@@ -1,6 +1,8 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const https = require("https");
+const http = require("http");
 
 function loadEpisodes() {
   const filePath = path.join(__dirname, "one-piece-links.json");
@@ -23,19 +25,16 @@ const EPISODE_NUMS = Object.keys(EPISODES).map(Number).sort((a, b) => a - b);
 
 const app = express();
 
-// CORS — חובה עבור Stremio
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "*");
   next();
 });
 
-// --- Ping ---
 app.get("/ping", (_req, res) => {
   res.json({ status: "alive", time: new Date().toISOString() });
 });
 
-// --- Manifest ---
 app.get("/manifest.json", (_req, res) => {
   res.json({
     id: "community.onepiece.israel",
@@ -53,7 +52,6 @@ app.get("/manifest.json", (_req, res) => {
   });
 });
 
-// --- Catalog ---
 app.get("/catalog/series/onepiece_israel_catalog.json", (_req, res) => {
   res.json({
     metas: [{
@@ -70,7 +68,6 @@ app.get("/catalog/series/onepiece_israel_catalog.json", (_req, res) => {
   });
 });
 
-// --- Meta ---
 app.get(`/meta/series/${SERIES_ID}.json`, (_req, res) => {
   const videos = EPISODE_NUMS.map((epNum) => ({
     id: `${SERIES_ID}:1:${epNum}`,
@@ -79,7 +76,6 @@ app.get(`/meta/series/${SERIES_ID}.json`, (_req, res) => {
     episode: epNum,
     released: new Date(1999, 9, 20 + epNum).toISOString(),
   }));
-
   res.json({
     meta: {
       id: SERIES_ID,
@@ -95,8 +91,35 @@ app.get(`/meta/series/${SERIES_ID}.json`, (_req, res) => {
   });
 });
 
+// --- Proxy: מוריד את ה-redirect מ-Drive ומחזיר את ה-URL האמיתי ---
+function resolveGDriveUrl(fileId) {
+  return new Promise((resolve, reject) => {
+    const url = `https://drive.google.com/uc?export=download&confirm=t&id=${fileId}`;
+    const req = https.request(url, {
+      method: "GET",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Cookie": ""
+      }
+    }, (res) => {
+      // Drive מחזיר redirect — אנחנו רוצים את ה-Location
+      if (res.statusCode === 302 || res.statusCode === 301) {
+        resolve(res.headers.location);
+      } else if (res.statusCode === 200) {
+        // לפעמים מחזיר ישירות
+        resolve(url);
+      } else {
+        reject(new Error(`Drive returned ${res.statusCode}`));
+      }
+      res.destroy();
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 // --- Stream ---
-app.get("/stream/series/:id.json", (req, res) => {
+app.get("/stream/series/:id.json", async (req, res) => {
   const id = req.params.id;
   if (!id.startsWith(SERIES_ID)) return res.json({ streams: [] });
 
@@ -108,22 +131,34 @@ app.get("/stream/series/:id.json", (req, res) => {
   const fileId = fileIdMatch ? fileIdMatch[1] : null;
   if (!fileId) return res.json({ streams: [] });
 
-  console.log(`▶️  פרק ${epNum}: fileId=${fileId}`);
+  console.log(`▶️  פרק ${epNum}: מנסה לפתור URL מ-Drive...`);
 
-  res.json({
-    streams: [
-      {
-        // stream ישיר — Stremio ינגן בנגן הפנימי
-        title: `פרק ${epNum} — מתורגם עברית 🇮🇱`,
-        url: `https://drive.google.com/uc?export=download&confirm=t&id=${fileId}`,
-      },
-      {
-        // גיבוי — פתיחה בדפדפן אם הstream הישיר נחסם
+  try {
+    const directUrl = await resolveGDriveUrl(fileId);
+    console.log(`✅ פרק ${epNum}: ${directUrl?.substring(0, 80)}`);
+
+    res.json({
+      streams: [
+        {
+          title: `פרק ${epNum} — מתורגם עברית 🇮🇱`,
+          url: directUrl,
+        },
+        {
+          title: `פרק ${epNum} — פתח ב-Drive 🔗`,
+          externalUrl: `https://drive.google.com/file/d/${fileId}/view`,
+        }
+      ]
+    });
+  } catch (err) {
+    console.error(`❌ פרק ${epNum}: ${err.message}`);
+    // fallback ל-externalUrl
+    res.json({
+      streams: [{
         title: `פרק ${epNum} — פתח ב-Drive 🔗`,
         externalUrl: `https://drive.google.com/file/d/${fileId}/view`,
-      }
-    ]
-  });
+      }]
+    });
+  }
 });
 
 const PORT = process.env.PORT || 7000;
