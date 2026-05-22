@@ -92,29 +92,41 @@ app.get(`/meta/series/${SERIES_ID}.json`, (_req, res) => {
 });
 
 // --- Proxy: מוריד את ה-redirect מ-Drive ומחזיר את ה-URL האמיתי ---
-function resolveGDriveUrl(fileId) {
+function resolveGDriveUrl(fileId, maxRedirects = 10) {
   return new Promise((resolve, reject) => {
-    const url = `https://drive.google.com/uc?export=download&confirm=t&id=${fileId}`;
-    const req = https.request(url, {
-      method: "GET",
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Cookie": ""
-      }
-    }, (res) => {
-      // Drive מחזיר redirect — אנחנו רוצים את ה-Location
-      if (res.statusCode === 302 || res.statusCode === 301) {
-        resolve(res.headers.location);
-      } else if (res.statusCode === 200) {
-        // לפעמים מחזיר ישירות
-        resolve(url);
-      } else {
-        reject(new Error(`Drive returned ${res.statusCode}`));
-      }
-      res.destroy();
-    });
-    req.on("error", reject);
-    req.end();
+    let cookies = "";
+
+    function follow(url, remaining) {
+      if (remaining === 0) return reject(new Error("Too many redirects"));
+      const lib = url.startsWith("https") ? require("https") : require("http");
+      const req = lib.request(url, {
+        method: "GET",
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          ...(cookies ? { Cookie: cookies } : {})
+        }
+      }, (res) => {
+        const setCookie = res.headers["set-cookie"];
+        if (setCookie) cookies = setCookie.map(c => c.split(";")[0]).join("; ");
+        if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
+          const location = res.headers.location;
+          if (!location) return reject(new Error("Redirect with no location"));
+          res.destroy();
+          const nextUrl = location.startsWith("http") ? location : new URL(location, url).href;
+          follow(nextUrl, remaining - 1);
+        } else if (res.statusCode === 200) {
+          res.destroy();
+          resolve(url);
+        } else {
+          res.destroy();
+          reject(new Error("Drive returned " + res.statusCode));
+        }
+      });
+      req.on("error", reject);
+      req.end();
+    }
+
+    follow("https://drive.google.com/uc?export=download&confirm=t&id=" + fileId, maxRedirects);
   });
 }
 
