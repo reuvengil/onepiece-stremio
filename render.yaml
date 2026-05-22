@@ -2,7 +2,7 @@ services:
   - type: web
     name: onepiece-israel-stremio
     env: node
-    buildCommand: npm install --omit=dev
+    buildCommand: npm install
     startCommand: node addon.js
     envVars:
       - key: PORT
