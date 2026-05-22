@@ -153,7 +153,7 @@ app.get("/stream/series/:id.json", async (req, res) => {
       streams: [
         {
           title: `פרק ${epNum} — מתורגם עברית 🇮🇱`,
-          url: directUrl,
+          url: directUrl.includes("confirm=") ? directUrl : directUrl + (directUrl.includes("?") ? "&confirm=t" : "?confirm=t"),
         },
         {
           title: `פרק ${epNum} — פתח ב-Drive 🔗`,
