@@ -1,0 +1,17 @@
+{
+  "name": "onepiece-israel-stremio",
+  "version": "1.0.0",
+  "description": "Stremio addon לוואן פיס ישראל בעברית",
+  "main": "addon.js",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "crawl": "node onepiece-crawler.js",
+    "check": "node check-links.js",
+    "start": "node addon.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "puppeteer": "^21.0.0",
+    "stremio-addon-sdk": "^1.6.10"
+  }
+}
