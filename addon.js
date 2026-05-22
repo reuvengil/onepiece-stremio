@@ -30,7 +30,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// --- Ping (למניעת כיבוי ב-Render) ---
+// --- Ping ---
 app.get("/ping", (_req, res) => {
   res.json({ status: "alive", time: new Date().toISOString() });
 });
@@ -97,7 +97,7 @@ app.get(`/meta/series/${SERIES_ID}.json`, (_req, res) => {
 
 // --- Stream ---
 app.get("/stream/series/:id.json", (req, res) => {
-  const id = req.params.id; // onepiece_israel:1:42
+  const id = req.params.id;
   if (!id.startsWith(SERIES_ID)) return res.json({ streams: [] });
 
   const epNum = parseInt(id.split(":")[2], 10);
@@ -105,17 +105,24 @@ app.get("/stream/series/:id.json", (req, res) => {
   if (!url) return res.json({ streams: [] });
 
   const fileIdMatch = url.match(/\/file\/d\/([^/]+)/);
-  const streamUrl = fileIdMatch
-    ? `https://drive.google.com/uc?export=download&id=${fileIdMatch[1]}`
-    : url;
+  const fileId = fileIdMatch ? fileIdMatch[1] : null;
+  if (!fileId) return res.json({ streams: [] });
 
-  console.log(`▶️  פרק ${epNum}: ${streamUrl}`);
+  console.log(`▶️  פרק ${epNum}: fileId=${fileId}`);
 
   res.json({
-    streams: [{
-      title: `פרק ${epNum} — מתורגם עברית 🇮🇱`,
-      externalUrl: streamUrl,
-    }]
+    streams: [
+      {
+        // stream ישיר — Stremio ינגן בנגן הפנימי
+        title: `פרק ${epNum} — מתורגם עברית 🇮🇱`,
+        url: `https://drive.google.com/uc?export=download&confirm=t&id=${fileId}`,
+      },
+      {
+        // גיבוי — פתיחה בדפדפן אם הstream הישיר נחסם
+        title: `פרק ${epNum} — פתח ב-Drive 🔗`,
+        externalUrl: `https://drive.google.com/file/d/${fileId}/view`,
+      }
+    ]
   });
 });
 
