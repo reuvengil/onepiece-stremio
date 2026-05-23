@@ -130,8 +130,52 @@ function resolveGDriveUrl(fileId, maxRedirects = 10) {
   });
 }
 
+// --- Proxy endpoint: נקרא רק כשמשתמש לוחץ Play ---
+// מבצע redirect ל-Drive URL האמיתי רק בזמן צפייה
+app.get("/proxy/:fileId", async (req, res) => {
+  const { fileId } = req.params;
+  const targetUrl = `https://drive.google.com/uc?export=download&confirm=t&id=${fileId}`;
+
+  console.log(`▶️  proxy: ${fileId}`);
+
+  try {
+    // עוקב אחרי redirects של Drive עד ל-URL הסופי
+    const finalUrl = await new Promise((resolve, reject) => {
+      let cookies = "";
+      function follow(url, n) {
+        if (n === 0) return reject(new Error("too many redirects"));
+        const lib = url.startsWith("https") ? require("https") : require("http");
+        lib.get(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0",
+            ...(cookies ? { Cookie: cookies } : {})
+          }
+        }, (r) => {
+          const sc = r.headers["set-cookie"];
+          if (sc) cookies = sc.map(c => c.split(";")[0]).join("; ");
+          if ([301,302,303,307,308].includes(r.statusCode)) {
+            r.destroy();
+            const loc = r.headers.location;
+            follow(loc.startsWith("http") ? loc : new URL(loc, url).href, n - 1);
+          } else {
+            r.destroy();
+            resolve(url);
+          }
+        }).on("error", reject);
+      }
+      follow(targetUrl, 10);
+    });
+
+    // redirect את Stremio ל-URL הסופי — Stremio ינגן ישירות
+    res.redirect(302, finalUrl);
+  } catch (err) {
+    console.error(`❌ proxy error: ${err.message}`);
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // --- Stream ---
-app.get("/stream/series/:id.json", async (req, res) => {
+app.get("/stream/series/:id.json", (req, res) => {
   const id = req.params.id;
   if (!id.startsWith(SERIES_ID)) return res.json({ streams: [] });
 
@@ -143,34 +187,16 @@ app.get("/stream/series/:id.json", async (req, res) => {
   const fileId = fileIdMatch ? fileIdMatch[1] : null;
   if (!fileId) return res.json({ streams: [] });
 
-  console.log(`▶️  פרק ${epNum}: מנסה לפתור URL מ-Drive...`);
+  // BASE_URL מאפשר לבנות URL מלא לproxy
+  const base = process.env.BASE_URL || `http://localhost:${process.env.PORT || 7000}`;
 
-  try {
-    const directUrl = await resolveGDriveUrl(fileId);
-    console.log(`✅ פרק ${epNum}: ${directUrl?.substring(0, 80)}`);
-
-    res.json({
-      streams: [
-        {
-          title: `פרק ${epNum} — מתורגם עברית 🇮🇱`,
-          url: directUrl.includes("confirm=") ? directUrl : directUrl + (directUrl.includes("?") ? "&confirm=t" : "?confirm=t"),
-        },
-        {
-          title: `פרק ${epNum} — פתח ב-Drive 🔗`,
-          externalUrl: `https://drive.google.com/file/d/${fileId}/view`,
-        }
-      ]
-    });
-  } catch (err) {
-    console.error(`❌ פרק ${epNum}: ${err.message}`);
-    // fallback ל-externalUrl
-    res.json({
-      streams: [{
-        title: `פרק ${epNum} — פתח ב-Drive 🔗`,
-        externalUrl: `https://drive.google.com/file/d/${fileId}/view`,
-      }]
-    });
-  }
+  res.json({
+    streams: [{
+      title: `פרק ${epNum} — מתורגם עברית 🇮🇱`,
+      // url שמצביע על ה-proxy שלנו — נפתר רק כשלוחצים Play
+      url: `${base}/proxy/${fileId}`,
+    }]
+  });
 });
 
 const PORT = process.env.PORT || 7000;
