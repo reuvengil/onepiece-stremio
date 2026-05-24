@@ -3,13 +3,17 @@
   "version": "1.0.0",
   "description": "Stremio addon לוואן פיס ישראל בעברית",
   "main": "addon.js",
-  "engines": { "node": "20.x" },
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "crawl": "node onepiece-crawler.js",
     "check": "node check-links.js",
+    "copy": "node copy-to-drive.js",
     "start": "node addon.js"
   },
   "dependencies": {
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "googleapis": "^172.0.0"
   }
 }
