@@ -147,7 +147,7 @@ app.get("/stream/series/:id.json", async (req, res) => {
 
   try {
     const directUrl = await resolveGDriveUrl(fileId);
-    console.log(`✅ פרק ${epNum}: ${directUrl?.substring(0, 80)}`);
+    console.log(`✅ פרק ${epNum}: ${directUrl}`);
 
     res.json({
       streams: [
